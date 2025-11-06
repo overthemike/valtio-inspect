@@ -1,0 +1,71 @@
+{
+  "root": true,
+  "$schema": "https://biomejs.dev/schemas/2.1.4/schema.json",
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
+  "formatter": {
+    "enabled": true,
+    "formatWithErrors": false,
+    "indentStyle": "tab",
+    "indentWidth": 2,
+    "lineWidth": 100,
+    "includes": [
+      "**",
+      "**/examples/**",
+      "!**/.turbo/**",
+      "!**/.vscode/**",
+      "!**/dist/**",
+      "!**/node_modules/**",
+      "!**/.git/**"
+    ]
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double",
+      "trailingCommas": "all",
+      "semicolons": "asNeeded"
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "suspicious": {
+        "noExplicitAny": "error"
+      }
+    },
+    "includes": [
+      "**",
+      "!**/examples/**",
+      "!**/tests/**",
+      "!**/.turbo",
+      "!**/.vscode/**",
+      "!**/dist/**",
+      "!**/node_modules/**",
+      "!**/.git/**"
+    ]
+  },
+  "overrides": [
+    {
+      "includes": [
+        "**/tests/**",
+        "**/*.bench.ts",
+        "**/*.test.ts",
+        "**/*.spec.ts",
+        "**/tests/**"
+      ],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off"
+          }
+        }
+      }
+    }
+  ]
+}
