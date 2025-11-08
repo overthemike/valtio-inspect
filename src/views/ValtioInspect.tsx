@@ -1,5 +1,4 @@
 /** biome-ignore-all lint/suspicious/noExplicitAny: <need flexibility> */
-import JSON5 from "json5"
 import {
 	ChevronDown,
 	ChevronRight,
@@ -11,9 +10,10 @@ import {
 	SkipForward,
 	Trash2,
 } from "lucide-react"
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { StateTree } from "../components/StateTree"
+import { devtoolsBridge } from "../devtools/bridge"
 import type { Snapshot, Tab } from "../types"
 import { parseLooseValue } from "../utils/parse"
 import { collectAllPaths, expandPathWithAncestors, toggleExpandFactory } from "../utils/tree"
@@ -22,7 +22,12 @@ import SubscribersView from "./SubscribersView"
 
 const ValtioInspect: React.FC = () => {
 	// --- State comes first (avoid TDZ issues) ---------------------------------
-	const [selectedSnapshot, setSelectedSnapshot] = useState(2)
+	const initialStateRef = useRef(devtoolsBridge.getState())
+	const initialSnapshotsRef = useRef(devtoolsBridge.getSnapshots())
+
+	const [selectedSnapshotIndex, setSelectedSnapshotIndex] = useState(() =>
+		Math.max(0, (initialSnapshotsRef.current?.length ?? 0) - 1),
+	)
 	const [isPaused, setIsPaused] = useState(false)
 	const [searchQuery, setSearchQuery] = useState("")
 	const [activeTab, setActiveTab] = useState<Tab>("state")
@@ -30,102 +35,69 @@ const ValtioInspect: React.FC = () => {
 	const [editingPath, setEditingPath] = useState<string | null>(null)
 	const [editValue, setEditValue] = useState("")
 
-	const [stateData, setStateData] = useState({
-		user: {
-			name: "Alice",
-			email: "alice@example.com",
-			preferences: { theme: "dark", notifications: true },
-		},
-		todos: [
-			{ id: 1, text: "Buy milk", done: true },
-			{ id: 2, text: "Walk dog", done: false },
-		],
-		counter: 42,
-	})
+	const [stateData, setStateData] = useState<unknown>(() => initialStateRef.current)
+	const [snapshots, setSnapshots] = useState<Snapshot[]>(() => initialSnapshotsRef.current ?? [])
 
-	const [expandedPaths, setExpandedPaths] = useState(() => collectAllPaths(stateData))
+	const [expandedPaths, setExpandedPaths] = useState(() => collectAllPaths(initialStateRef.current))
+
+	const isPausedRef = useRef(isPaused)
+	const prevSnapshotLenRef = useRef(initialSnapshotsRef.current?.length ?? 0)
 
 	// --- Derived values --------------------------------------------------------
 	const allPaths = useMemo(() => collectAllPaths(stateData), [stateData])
+	const filteredSnapshots = useMemo(() => {
+		const trimmed = searchQuery.trim().toLowerCase()
+		if (!trimmed) return snapshots
+		return snapshots.filter((snap) => snap.action.toLowerCase().includes(trimmed))
+	}, [searchQuery, snapshots])
 
 	// --- Handlers that depend on state/memos ----------------------------------
 	const handleExpandAll = useCallback(() => setExpandedPaths(new Set(allPaths)), [allPaths])
 
 	const handleCollapseAll = useCallback(() => setExpandedPaths(new Set<string>(["root"])), [])
 
-	const updateValueAtPath = useCallback(
-		(path: string, value: any) => {
-			const keys = path.split(".")
-			const newState: any = JSON.parse(JSON.stringify(stateData))
-			let current: any = newState
-
-			for (let i = 0; i < keys.length - 1; i++) {
-				const key = keys[i]
-				const arrayMatch = key.match(/^(.+)\[(\d+)\]$/)
-				if (arrayMatch) {
-					const [, arrayKey, index] = arrayMatch
-					current = current[arrayKey][parseInt(index)]
-				} else {
-					current = current[key]
-				}
-			}
-
-			const lastKey = keys[keys.length - 1]
-			const arrayMatch = lastKey.match(/^(.+)\[(\d+)\]$/)
-			if (arrayMatch) {
-				const [, arrayKey, index] = arrayMatch
-				current[arrayKey][parseInt(index)] = value
-			} else {
-				current[lastKey] = value
-			}
-
-			setStateData(newState)
-			// ensure the edited node is visible
-			expandPathWithAncestors(setExpandedPaths, path)
-			setEditingPath(null)
-		},
-		[stateData],
-	)
+	const handleClearSnapshots = useCallback(() => {
+		devtoolsBridge.clearSnapshots()
+		setSelectedSnapshotIndex(0)
+	}, [])
 
 	const onStartEdit = useCallback((path: string, currentValue: any) => {
 		setEditingPath(path)
 		if (typeof currentValue === "string") {
 			setEditValue(currentValue)
 		} else if (currentValue && typeof currentValue === "object") {
-			setEditValue(JSON5.stringify(currentValue, null, 2))
+			setEditValue(JSON.stringify(currentValue, null, 2))
 		} else {
 			setEditValue(String(currentValue))
 		}
 	}, [])
 
-	const onCommitEdit = useCallback(
-		(path: string, raw: string) => {
-			const parsed = parseLooseValue(raw)
-			updateValueAtPath(path, parsed)
+	const onCommitEdit = useCallback((path: string, raw: string) => {
+		const parsed = parseLooseValue(raw)
+		devtoolsBridge.edit(path, parsed)
 
-			// expand if it became a container; collapse if primitive
-			if (parsed && typeof parsed === "object") {
-				setExpandedPaths((prev) => {
-					const next = new Set(prev)
-					// Add the path itself
-					next.add(path)
-					// Collect and add all nested paths within the new object/array
-					const nestedPaths = collectAllPaths(parsed, path)
-					nestedPaths.forEach((p) => next.add(p))
-					return next
-				})
-			} else {
-				setExpandedPaths((prev) => {
-					const next = new Set(prev)
-					next.delete(path)
-					return next
-				})
-			}
+		// expand if it became a container; collapse if primitive
+		if (parsed && typeof parsed === "object") {
+			setExpandedPaths((prev) => {
+				const next = new Set(prev)
+				// Add the path itself
+				next.add(path)
+				// Collect and add all nested paths within the new object/array
+				const nestedPaths = collectAllPaths(parsed, path)
+				nestedPaths.forEach((p) => next.add(p))
+				return next
+			})
+		} else {
+			setExpandedPaths((prev) => {
+				const next = new Set(prev)
+				next.delete(path)
+				return next
+			})
+		}
 
-			setEditingPath(null)
-		},
-		[updateValueAtPath],
-	)
+		setEditingPath(null)
+		setEditValue("")
+	}, [])
 
 	const onCancelEdit = useCallback(() => {
 		setEditingPath(null)
@@ -133,42 +105,6 @@ const ValtioInspect: React.FC = () => {
 	}, [])
 
 	const toggleExpand = toggleExpandFactory(expandedPaths, setExpandedPaths)
-
-	// --- Demo data -------------------------------------------------------------
-	const snapshots: Snapshot[] = [
-		{ id: 0, action: "Initial State", timestamp: "10:23:45.123", changes: [] },
-		{
-			id: 1,
-			action: "user.name",
-			timestamp: "10:23:47.456",
-			changes: [{ id: 0, path: "user.name", from: "", to: "Alice" }],
-		},
-		{
-			id: 2,
-			action: "user.email",
-			timestamp: "10:23:48.789",
-			changes: [{ id: 1, path: "user.email", from: "", to: "alice@example.com" }],
-		},
-		{
-			id: 3,
-			action: "todos[0]",
-			timestamp: "10:23:50.012",
-			changes: [
-				{
-					id: 3,
-					path: "todos[0]",
-					from: undefined,
-					to: { id: 1, text: "Buy milk", done: false },
-				},
-			],
-		},
-		{
-			id: 4,
-			action: "todos[0].done",
-			timestamp: "10:23:52.345",
-			changes: [{ id: 4, path: "todos[0].done", from: false, to: true }],
-		},
-	]
 
 	const subscribers = [
 		{
@@ -208,6 +144,53 @@ const ValtioInspect: React.FC = () => {
 		},
 	]
 
+	// --- Effects --------------------------------------------------------------
+	useEffect(() => {
+		isPausedRef.current = isPaused
+		if (!isPaused) {
+			setStateData(devtoolsBridge.getState())
+			setSnapshots(devtoolsBridge.getSnapshots())
+		}
+	}, [isPaused])
+
+	useEffect(() => {
+		const unsubState = devtoolsBridge.onState((next) => {
+			if (isPausedRef.current) return
+			setStateData(next)
+		})
+		const unsubSnaps = devtoolsBridge.onSnapshots((next) => {
+			if (isPausedRef.current) return
+			setSnapshots(next)
+		})
+		return () => {
+			unsubState()
+			unsubSnaps()
+		}
+	}, [])
+
+	useEffect(() => {
+		const allowed = collectAllPaths(stateData)
+		setExpandedPaths((prev) => {
+			const next = new Set<string>()
+			for (const path of prev) if (allowed.has(path)) next.add(path)
+			next.add("root")
+			return next
+		})
+	}, [stateData])
+
+	useEffect(() => {
+		const prevLen = prevSnapshotLenRef.current
+		setSelectedSnapshotIndex((prev) => {
+			if (snapshots.length === 0) return 0
+			const clamped = Math.min(prev, snapshots.length - 1)
+			if (prevLen > 0 && prev === prevLen - 1 && snapshots.length > prevLen) {
+				return snapshots.length - 1
+			}
+			return clamped
+		})
+		prevSnapshotLenRef.current = snapshots.length
+	}, [snapshots])
+
 	// --- Render ---------------------------------------------------------------
 	return (
 		<div className="h-screen bg-gray-950 text-gray-100 flex flex-col font-mono text-sm">
@@ -219,7 +202,13 @@ const ValtioInspect: React.FC = () => {
 					<span className="text-gray-500">Inspect</span>
 				</div>
 				<div className="flex items-center gap-2">
-					<button type="button" className="p-1.5 hover:bg-gray-800 rounded" title="Clear snapshots">
+					<button
+						type="button"
+						className="p-1.5 hover:bg-gray-800 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+						title="Clear snapshots"
+						onClick={handleClearSnapshots}
+						disabled={snapshots.length <= 1}
+					>
 						<Trash2 size={16} />
 					</button>
 					<button
@@ -248,13 +237,18 @@ const ValtioInspect: React.FC = () => {
 					</div>
 
 					<div className="flex-1 overflow-y-auto">
-						{snapshots.map((snapshot) => (
+						{filteredSnapshots.map((snapshot) => (
 							<button
 								type="button"
 								key={snapshot.id}
-								onClick={() => setSelectedSnapshot(snapshot.id)}
+								onClick={() => {
+									const idx = snapshots.findIndex((s) => s.id === snapshot.id)
+									if (idx >= 0) setSelectedSnapshotIndex(idx)
+								}}
 								className={`w-full text-left px-3 py-2 border-b border-gray-800 cursor-pointer hover:bg-gray-800/50 ${
-									selectedSnapshot === snapshot.id ? "bg-gray-800 border-l-2 border-orange-500" : ""
+									snapshots[selectedSnapshotIndex]?.id === snapshot.id
+										? "bg-gray-800 border-l-2 border-orange-500"
+										: ""
 								}`}
 							>
 								<div className="flex items-center justify-between mb-1">
@@ -278,24 +272,26 @@ const ValtioInspect: React.FC = () => {
 							<button
 								type="button"
 								className="p-1.5 hover:bg-gray-800 rounded disabled:opacity-30"
-								disabled={selectedSnapshot === 0}
-								onClick={() => setSelectedSnapshot(Math.max(0, selectedSnapshot - 1))}
+								disabled={snapshots.length === 0 || selectedSnapshotIndex === 0}
+								onClick={() => setSelectedSnapshotIndex((prev) => Math.max(0, prev - 1))}
 							>
 								<SkipBack size={16} />
 							</button>
 							<button
 								type="button"
 								className="p-1.5 hover:bg-gray-800 rounded disabled:opacity-30"
-								disabled={selectedSnapshot === snapshots.length - 1}
+								disabled={snapshots.length === 0 || selectedSnapshotIndex >= snapshots.length - 1}
 								onClick={() =>
-									setSelectedSnapshot(Math.min(snapshots.length - 1, selectedSnapshot + 1))
+									setSelectedSnapshotIndex((prev) => Math.min(snapshots.length - 1, prev + 1))
 								}
 							>
 								<SkipForward size={16} />
 							</button>
 						</div>
 						<span className="text-xs text-gray-500">
-							{selectedSnapshot + 1} / {snapshots.length}
+							{snapshots.length > 0
+								? `${selectedSnapshotIndex + 1} / ${snapshots.length}`
+								: "0 / 0"}
 						</span>
 					</div>
 				</div>
@@ -373,14 +369,15 @@ const ValtioInspect: React.FC = () => {
 										startEdit={onStartEdit}
 										commitEdit={onCommitEdit}
 										cancelEdit={onCancelEdit}
-										updateValueAtPath={updateValueAtPath}
 										toggleExpand={toggleExpand}
 									/>
 								</div>
 							</>
 						)}
 
-						{activeTab === "diff" && <DiffView snapshots={snapshots} selected={selectedSnapshot} />}
+						{activeTab === "diff" && (
+							<DiffView snapshots={snapshots} selected={selectedSnapshotIndex} />
+						)}
 						{activeTab === "subscribers" && <SubscribersView subscribers={subscribers} />}
 					</div>
 

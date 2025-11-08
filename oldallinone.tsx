@@ -28,7 +28,11 @@ type Snapshot = {
 	changes: Change[];
 };
 
-import JSON5 from "json5";
+// Mirrors the inspector's JSON5-like parser without shipping the json5 dependency, so the
+// demo works in environments where optional packages are unavailable.
+function evaluateJsonish(source: string) {
+	return Function("\"use strict\";return (".concat(source, ");"))();
+}
 
 function childPath(base: string, parentIsArray: boolean, childKey: string) {
 	if (base === "root") return childKey;
@@ -75,7 +79,7 @@ const expandPathWithAncestors = (
  *  - exact booleans/null/undefined
  *  - numeric literal
  *  - strict JSON
- *  - JSON5 (unquoted keys, single quotes, trailing commas, comments)
+ *  - JSON5-like syntax (unquoted keys, single quotes, trailing commas, comments)
  *  - otherwise keep as string
  */
 export function parseLooseValue(raw: string): any {
@@ -92,29 +96,28 @@ export function parseLooseValue(raw: string): any {
 	}
 
 	// Strict JSON first (fast path)
-	if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-		try {
-			return JSON.parse(trimmed);
-		} catch {
-			// Then try JSON5 for JS-like object/array syntax
-			try {
-				return JSON5.parse(trimmed);
-			} catch {
-				// fall through
-			}
-		}
-	}
+        if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+                try {
+                        return JSON.parse(trimmed);
+                } catch {
+                        try {
+                                return evaluateJsonish(trimmed);
+                        } catch {
+                                // fall through
+                        }
+                }
+        }
 
 	// If user wrapped with quotes, unquote once
 	if (
 		(trimmed.startsWith('"') && trimmed.endsWith('"')) ||
 		(trimmed.startsWith("'") && trimmed.endsWith("'"))
 	) {
-		try {
-			// JSON.parse handles escapes for double-quoted; for single-quoted, JSON5
-			return trimmed.startsWith('"')
-				? JSON.parse(trimmed)
-				: JSON5.parse(trimmed);
+                try {
+                        // JSON.parse handles escapes for double-quoted; evaluateJsonish covers single-quoted input
+                        return trimmed.startsWith('"')
+                                ? JSON.parse(trimmed)
+                                : evaluateJsonish(trimmed);
 		} catch {
 			// keep as plain string without outer quotes
 			return trimmed.slice(1, -1);
@@ -427,7 +430,7 @@ const ValtioInspect = () => {
 		if (typeof currentValue === "string") {
 			setEditValue(currentValue);
 		} else if (currentValue && typeof currentValue === "object") {
-			setEditValue(JSON5.stringify(currentValue, null, 2)); // pretty
+                    setEditValue(JSON.stringify(currentValue, null, 2)); // pretty
 		} else {
 			setEditValue(String(currentValue));
 		}

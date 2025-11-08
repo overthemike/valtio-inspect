@@ -1,5 +1,6 @@
 /** biome-ignore-all lint/suspicious/noExplicitAny: <Need flexibility> */
 
+import { snapshot } from "valtio"
 import type { INTERNAL_Op } from "valtio"
 import type { ValtioPlugin } from "valtio-plugin"
 
@@ -11,8 +12,6 @@ function nowStr() {
 	const d = new Date()
 	return d.toLocaleTimeString()
 }
-
-let changeId = 0
 
 function setByPathInPlace(root: any, pathArr: (string | number)[], next: unknown) {
 	if (pathArr.length === 0) {
@@ -30,11 +29,19 @@ function setByPathInPlace(root: any, pathArr: (string | number)[], next: unknown
 	cur[last] = next
 }
 
+function createInitialSnapshot(): Snapshot {
+	return { id: 0, action: "Initial State", timestamp: nowStr(), changes: [] }
+}
+
 export function createDevtoolsPlugin(): ValtioPlugin {
 	// plugin-local state
 	let rootProxy: any = null
 	let nextSnapId = 1
-	let snapshots: Snapshot[] = [{ id: 0, action: "Initial State", timestamp: nowStr(), changes: [] }]
+	let snapshots: Snapshot[] = [createInitialSnapshot()]
+	let hasBroadcastInitial = false
+	let uninstallGlobals: (() => void) | null = null
+	let changeCounter = 0
+	let snapshotWarningLogged = false
 
 	// Accumulate the "current change" if transform/before/after provide pieces
 	// but we’ll primarily rely on afterChange for "final" value.
@@ -44,13 +51,65 @@ export function createDevtoolsPlugin(): ValtioPlugin {
 		next?: unknown
 	} = null
 
-	// expose edit API for the UI
-	const installEditApi = () => {
+	const broadcastState = () => {
+		if (!rootProxy) return
+		let plain = rootProxy
+		try {
+			plain = snapshot(rootProxy)
+		} catch (err) {
+			if (!snapshotWarningLogged) {
+				snapshotWarningLogged = true
+				console.warn("valtio-devtools: failed to snapshot state", err)
+			}
+		}
+		devtoolsBridge.ingestState(plain)
+	}
+
+	const pushSnapshotsToUi = () => {
+		devtoolsBridge.ingestSnaps(snapshots)
+	}
+
+	const resetSnapshots = () => {
+		changeCounter = 0
+		nextSnapId = 1
+		snapshots = [createInitialSnapshot()]
+		pushSnapshotsToUi()
+		hasBroadcastInitial = rootProxy !== null
+		if (rootProxy) broadcastState()
+	}
+
+	// expose edit & clear APIs for the UI
+	const installGlobalApis = () => {
+		uninstallGlobals?.()
+
+		const previousEdit = (globalThis as any).__VALTIO_DEVTOOLS_EDIT__
+		const previousClear = (globalThis as any).__VALTIO_DEVTOOLS_CLEAR__
+
 		;(globalThis as any).__VALTIO_DEVTOOLS_EDIT__ = (path: string, next: unknown) => {
 			if (!rootProxy) return
 			const arr = pathStringToArr(path)
 			setByPathInPlace(rootProxy, arr, next)
-			// Optional: you could emit a synthetic snapshot here, but afterChange will run anyway.
+		}
+
+		;(globalThis as any).__VALTIO_DEVTOOLS_CLEAR__ = () => {
+			resetSnapshots()
+		}
+
+		uninstallGlobals = () => {
+			if (previousEdit) (globalThis as any).__VALTIO_DEVTOOLS_EDIT__ = previousEdit
+			else delete (globalThis as any).__VALTIO_DEVTOOLS_EDIT__
+
+			if (previousClear) (globalThis as any).__VALTIO_DEVTOOLS_CLEAR__ = previousClear
+			else delete (globalThis as any).__VALTIO_DEVTOOLS_CLEAR__
+		}
+	}
+
+	const ensureRoot = (root: unknown) => {
+		if (!rootProxy && root) rootProxy = root
+		if (rootProxy && !hasBroadcastInitial) {
+			hasBroadcastInitial = true
+			broadcastState()
+			pushSnapshotsToUi()
 		}
 	}
 
@@ -61,16 +120,17 @@ export function createDevtoolsPlugin(): ValtioPlugin {
 			timestamp: nowStr(),
 			changes: [chg],
 		}
-		snapshots = [...snapshots, snap].slice(-300) // keep last N
-		devtoolsBridge.ingestSnaps(snapshots)
+		snapshots = [...snapshots, snap].slice(-300)
+		pushSnapshotsToUi()
 	}
 
 	return {
 		id: "devtools",
 
 		onAttach() {
-			// nothing special required; keep a handle if you need
-			installEditApi()
+			installGlobalApis()
+			pushSnapshotsToUi()
+			if (rootProxy) broadcastState()
 		},
 
 		onInit() {
@@ -91,53 +151,49 @@ export function createDevtoolsPlugin(): ValtioPlugin {
 
 		onGet(_path, _value, root) {
 			// Cache the root so the edit API can mutate it.
-			if (!rootProxy) rootProxy = root
+			ensureRoot(root)
 			// no-op
 		},
 
 		transformSet(_path, _value, root) {
 			// capture root for edit API
-			if (!rootProxy) rootProxy = root
+			ensureRoot(root)
 			// You could normalize value here; we’ll leave it as-is.
-			return undefined // no transform
+			return undefined
 		},
 
 		beforeChange(path, next, prev, root) {
-			if (!rootProxy) rootProxy = root
+			ensureRoot(root)
 			pendingChange = {
 				pathStr: arrToPathString(path as (string | number)[]),
 				prev,
 				next,
 			}
-			// return false to cancel; we always allow
 			return true
 		},
 
 		afterChange(path, next, root) {
-			if (!rootProxy) rootProxy = root
+			ensureRoot(root)
 
 			const pathStr = arrToPathString(path as (string | number)[])
 			const from = pendingChange?.prev
 			const to = next
 
 			const change: Change = {
-				id: changeId++,
+				id: changeCounter++,
 				path: pathStr,
 				from,
 				to,
 			}
 
 			pushSnapshot(change)
-			devtoolsBridge.ingestState(rootProxy)
-
+			broadcastState()
 			pendingChange = null
 		},
 
 		onDispose() {
-			// clean up the edit hook
-			if ((globalThis as any).__VALTIO_DEVTOOLS_EDIT__) {
-				delete (globalThis as any).__VALTIO_DEVTOOLS_EDIT__
-			}
+			uninstallGlobals?.()
+			uninstallGlobals = null
 		},
 	}
 }

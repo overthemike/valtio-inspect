@@ -9,9 +9,17 @@ export function arrToPathString(arr: (string | number)[]): string {
 
 export function pathStringToArr(path: string): (string | number)[] {
 	if (!path || path === "root") return []
+
+	let clean = path
+	if (clean.startsWith("root")) {
+		clean = clean.slice(4)
+		if (clean.startsWith(".")) clean = clean.slice(1)
+	}
+	if (!clean) return []
+
 	const parts: (string | number)[] = []
 
-	path.split(".").forEach((seg) => {
+	clean.split(".").forEach((seg) => {
 		const rx = /([^[\]]+)|\[(\d+)\]/g
 		for (const m of seg.matchAll(rx)) {
 			const [, key, idx] = m
