@@ -14,7 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { StateTree } from "../components/StateTree"
 import { devtoolsBridge } from "../devtools/bridge"
-import type { Snapshot, Tab } from "../types"
+import type { Snapshot, Subscriber, Tab } from "../types"
 import { parseLooseValue } from "../utils/parse"
 import { collectAllPaths, expandPathWithAncestors, toggleExpandFactory } from "../utils/tree"
 import DiffView from "./DiffView"
@@ -37,6 +37,7 @@ const ValtioInspect: React.FC = () => {
 
 	const [stateData, setStateData] = useState<unknown>(() => initialStateRef.current)
 	const [snapshots, setSnapshots] = useState<Snapshot[]>(() => initialSnapshotsRef.current ?? [])
+	const [subscribers, setSubscribers] = useState<Subscriber[]>([])
 
 	const [expandedPaths, setExpandedPaths] = useState(() => collectAllPaths(initialStateRef.current))
 
@@ -106,44 +107,6 @@ const ValtioInspect: React.FC = () => {
 
 	const toggleExpand = toggleExpandFactory(expandedPaths, setExpandedPaths)
 
-	const subscribers = [
-		{
-			id: "sub-1",
-			component: "UserProfile",
-			paths: ["user.name", "user.email"],
-			renderCount: 3,
-			lastRender: "10:23:48.789",
-		},
-		{
-			id: "sub-2",
-			component: "TodoList",
-			paths: ["todos"],
-			renderCount: 2,
-			lastRender: "10:23:52.345",
-		},
-		{
-			id: "sub-3",
-			component: "Counter",
-			paths: ["counter"],
-			renderCount: 1,
-			lastRender: "10:23:45.123",
-		},
-		{
-			id: "sub-4",
-			component: "ThemeProvider",
-			paths: ["user.preferences.theme"],
-			renderCount: 1,
-			lastRender: "10:23:45.123",
-		},
-		{
-			id: "sub-5",
-			component: "TodoItem[0]",
-			paths: ["todos[0]", "todos[0].done"],
-			renderCount: 4,
-			lastRender: "10:23:52.345",
-		},
-	]
-
 	// --- Effects --------------------------------------------------------------
 	useEffect(() => {
 		isPausedRef.current = isPaused
@@ -162,9 +125,14 @@ const ValtioInspect: React.FC = () => {
 			if (isPausedRef.current) return
 			setSnapshots(next)
 		})
+		const unsubSubscribers = devtoolsBridge.onSubscribers((next) => {
+			if (isPausedRef.current) return
+			setSubscribers(next)
+		})
 		return () => {
 			unsubState()
 			unsubSnaps()
+			unsubSubscribers()
 		}
 	}, [])
 

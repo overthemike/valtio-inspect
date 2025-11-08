@@ -1,7 +1,7 @@
 import { proxy } from "valtio"
 import "valtio-plugin"
 
-import { createDevtoolsPlugin } from "../lib/insectorPlugin"
+import { createDevtoolsPlugin } from "../lib/InpsectPlugin"
 
 type Todo = { id: number; title: string; done: boolean }
 

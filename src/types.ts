@@ -16,4 +16,12 @@ export type Snapshot = {
 	changes: Change[]
 }
 
+export type Subscriber = {
+	id: string
+	component: string
+	paths: string[]
+	renderCount: number
+	lastRender: string
+}
+
 export type Host = EnhancedGlobalProxy | ProxyFactory
