@@ -1,7 +1,6 @@
 /** biome-ignore-all lint/suspicious/noExplicitAny: devtools rendering */
 import { ChevronDown, ChevronRight, Pencil } from "lucide-react"
 
-import { asClickable } from "../utils/asClickable"
 import { expandPathWithAncestors } from "../utils/tree"
 import EditInline from "./EditInline"
 
@@ -40,7 +39,7 @@ export const StateTree: React.FC<StateTreeProps> = ({
 	startEdit,
 	commitEdit,
 	cancelEdit,
-	updateValueAtPath, // kept for recursion parity
+	updateValueAtPath,
 }) => {
 	const parentIsArray = Array.isArray(data)
 	const isObject = typeof data === "object" && data !== null
@@ -63,28 +62,29 @@ export const StateTree: React.FC<StateTreeProps> = ({
 				const childExpanded = expandedPaths.has(currentPath)
 				const isEditing = editingPath === currentPath
 
-				// only clickable when expandable
-				const rowProps =
-					!isEditing && hasChildren ? asClickable(() => toggleExpand(currentPath)) : {}
-
 				return (
 					<div key={currentPath} style={{ marginLeft: depth > 0 ? "16px" : "0" }}>
 						<div className="group flex items-center gap-1 py-0.5 hover:bg-gray-800/50 rounded px-1">
-							<div
-								className="flex items-center gap-1 flex-1 cursor-pointer min-w-0"
-								role="treeitem"
-								aria-expanded={hasChildren ? childExpanded : undefined}
-								tabIndex={0}
-								{...rowProps}
-							>
+							<div className="flex items-center gap-1 flex-1 min-w-0">
 								{hasChildren ? (
-									childExpanded ? (
-										<ChevronDown size={14} className="text-gray-500" />
-									) : (
-										<ChevronRight size={14} className="text-gray-500" />
-									)
+									<button
+										type="button"
+										className="p-0 hover:bg-gray-700/50 rounded cursor-pointer shrink-0"
+										onClick={(e) => {
+											e.stopPropagation()
+											toggleExpand(currentPath)
+										}}
+										aria-expanded={childExpanded}
+										aria-label={childExpanded ? "Collapse" : "Expand"}
+									>
+										{childExpanded ? (
+											<ChevronDown size={14} className="text-gray-500" />
+										) : (
+											<ChevronRight size={14} className="text-gray-500" />
+										)}
+									</button>
 								) : (
-									<span className="w-3.5" />
+									<span className="w-3.5 shrink-0" />
 								)}
 
 								{/* Key label */}

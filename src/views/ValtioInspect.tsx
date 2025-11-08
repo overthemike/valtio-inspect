@@ -1,5 +1,4 @@
 /** biome-ignore-all lint/suspicious/noExplicitAny: <need flexibility> */
-import { useCallback, useMemo, useState } from "react"
 import JSON5 from "json5"
 import {
 	ChevronDown,
@@ -12,15 +11,14 @@ import {
 	SkipForward,
 	Trash2,
 } from "lucide-react"
+import { useCallback, useMemo, useState } from "react"
 
 import { StateTree } from "../components/StateTree"
-import DiffView from "./DiffView"
-import SubscribersView from "./SubscribersView"
-
-import { asClickable } from "../utils/asClickable"
+import type { Snapshot, Tab } from "../types"
 import { parseLooseValue } from "../utils/parse"
 import { collectAllPaths, expandPathWithAncestors, toggleExpandFactory } from "../utils/tree"
-import type { Snapshot, Tab } from "../types"
+import DiffView from "./DiffView"
+import SubscribersView from "./SubscribersView"
 
 const ValtioInspect: React.FC = () => {
 	// --- State comes first (avoid TDZ issues) ---------------------------------
@@ -109,7 +107,11 @@ const ValtioInspect: React.FC = () => {
 			if (parsed && typeof parsed === "object") {
 				setExpandedPaths((prev) => {
 					const next = new Set(prev)
+					// Add the path itself
 					next.add(path)
+					// Collect and add all nested paths within the new object/array
+					const nestedPaths = collectAllPaths(parsed, path)
+					nestedPaths.forEach((p) => next.add(p))
 					return next
 				})
 			} else {
@@ -247,10 +249,11 @@ const ValtioInspect: React.FC = () => {
 
 					<div className="flex-1 overflow-y-auto">
 						{snapshots.map((snapshot) => (
-							<div
-								{...asClickable(() => setSelectedSnapshot(snapshot.id))}
+							<button
+								type="button"
 								key={snapshot.id}
-								className={`px-3 py-2 border-b border-gray-800 cursor-pointer hover:bg-gray-800/50 ${
+								onClick={() => setSelectedSnapshot(snapshot.id)}
+								className={`w-full text-left px-3 py-2 border-b border-gray-800 cursor-pointer hover:bg-gray-800/50 ${
 									selectedSnapshot === snapshot.id ? "bg-gray-800 border-l-2 border-orange-500" : ""
 								}`}
 							>
@@ -265,7 +268,7 @@ const ValtioInspect: React.FC = () => {
 										{snapshot.changes.length > 1 ? "s" : ""}
 									</div>
 								)}
-							</div>
+							</button>
 						))}
 					</div>
 
