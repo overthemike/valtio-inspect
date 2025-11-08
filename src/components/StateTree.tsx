@@ -19,7 +19,6 @@ type StateTreeProps = {
 	commitEdit: (path: string, raw: string) => void
 	cancelEdit: () => void
 
-	updateValueAtPath: (path: string, value: any) => void
 }
 
 function childPath(base: string, parentIsArray: boolean, childKey: string) {
@@ -39,7 +38,6 @@ export const StateTree: React.FC<StateTreeProps> = ({
 	startEdit,
 	commitEdit,
 	cancelEdit,
-	updateValueAtPath,
 }) => {
 	const parentIsArray = Array.isArray(data)
 	const isObject = typeof data === "object" && data !== null
@@ -173,7 +171,6 @@ export const StateTree: React.FC<StateTreeProps> = ({
 								startEdit={startEdit}
 								commitEdit={commitEdit}
 								cancelEdit={cancelEdit}
-								updateValueAtPath={updateValueAtPath}
 							/>
 						)}
 					</div>

@@ -1,7 +1,13 @@
-import JSON5 from "json5"
-
 export function isNumericLiteral(s: string) {
 	return /^[-+]?(\d+(\.\d+)?|\.\d+)([eE][-+]?\d+)?$/.test(s)
+}
+
+// We previously used the json5 package here, but the inspector needs to keep working
+// even when optional dependencies are unavailable. The Function-based fallback
+// accepts a superset of JSON (single quotes, trailing commas, comments) without
+// pulling additional code into the build.
+function evaluateJsonish(source: string) {
+	return Function("\"use strict\";return (".concat(source, ");"))()
 }
 
 export function parseLooseValue(raw: string) {
@@ -19,7 +25,7 @@ export function parseLooseValue(raw: string) {
 			return JSON.parse(trimmed)
 		} catch {
 			try {
-				return JSON5.parse(trimmed)
+				return evaluateJsonish(trimmed)
 			} catch {
 				// fall through
 			}
@@ -31,7 +37,7 @@ export function parseLooseValue(raw: string) {
 		(trimmed.startsWith("'") && trimmed.endsWith("'"))
 	) {
 		try {
-			return trimmed.startsWith('"') ? JSON.parse(trimmed) : JSON5.parse(trimmed)
+			return trimmed.startsWith('"') ? JSON.parse(trimmed) : evaluateJsonish(trimmed)
 		} catch {
 			return trimmed.slice(1, -1)
 		}

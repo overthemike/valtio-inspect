@@ -18,13 +18,14 @@ function createEmitter<T>() {
 }
 
 export type DevtoolsHandle = {
-	onState: (fn: (s: unknown) => void) => () => void
-	onSnapshots: (fn: (s: Snapshot[]) => void) => () => void
-	ingestState: (s: unknown) => void
-	ingestSnaps: (snaps: Snapshot[]) => void
-	edit: (path: string, next: unknown) => void
-	getState: () => unknown | null
-	getSnapshots: () => Snapshot[]
+onState: (fn: (s: unknown) => void) => () => void
+onSnapshots: (fn: (s: Snapshot[]) => void) => () => void
+ingestState: (s: unknown) => void
+ingestSnaps: (snaps: Snapshot[]) => void
+edit: (path: string, next: unknown) => void
+clearSnapshots: () => void
+getState: () => unknown | null
+getSnapshots: () => Snapshot[]
 }
 
 export function createDevtoolsBridge(): DevtoolsHandle {
@@ -48,6 +49,10 @@ export function createDevtoolsBridge(): DevtoolsHandle {
 		;(globalThis as any).__VALTIO_DEVTOOLS_EDIT__?.(path, next)
 	}
 
+	function clearSnapshots() {
+		;(globalThis as any).__VALTIO_DEVTOOLS_CLEAR__?.()
+	}
+
 	function getState() {
 		return state
 	}
@@ -61,10 +66,11 @@ export function createDevtoolsBridge(): DevtoolsHandle {
 		onSnapshots: snapsEmitter.on,
 		ingestState,
 		ingestSnaps,
-		edit,
-		getState,
-		getSnapshots,
-	}
+edit,
+clearSnapshots,
+getState,
+getSnapshots,
+}
 }
 
 export const devtoolsBridge = createDevtoolsBridge()
